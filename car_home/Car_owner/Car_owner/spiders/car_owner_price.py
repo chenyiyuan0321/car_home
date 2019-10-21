@@ -50,6 +50,7 @@ class CarOwnerPriceSpider(scrapy.Spider):
     def parse(self, response):
         html = response.text
         # print(html)
+        #找到所有车型总称ID
         model_list = re.findall('<li id="s(.*?)">', html, re.S)
         for model_id in model_list:
             two_url = self.two_url.format(model_id)
@@ -61,6 +62,7 @@ class CarOwnerPriceSpider(scrapy.Spider):
         # print(info_list)
         if info_list:
             for info in info_list:
+                #细分车型ID
                 trim_list = info['specitems']
                 for trim in trim_list:
                     trim_id = trim['id']
@@ -71,19 +73,22 @@ class CarOwnerPriceSpider(scrapy.Spider):
                     url = self.owner_url.format(trim_id, '1')
                     print(url)
                     yield scrapy.Request(url=url, callback=self.parse_page, meta=response.meta)
-
+    #解析车主价格页面
     def parse_page(self, response):
         html = self.change_html(response.text)
         item = CarOwnerItem()
         car_owner_list = []
+        #找到车主价格表
         car_table_list = re.findall('<ul class="car-lists" >(.*?)</ul>', html, re.S)
-        print(len(car_table_list))
+        #print(len(car_table_list))
         if car_table_list:
+            #遍历表，取出数据
             for car_table in car_table_list:
                 # print(car_table)
                 items = {}
                 items['id'] = uuid.uuid1().hex
                 items['trim_id'] = response.meta['trim_id']
+                items['trim_name'] = response.meta['trim_name']
                 items['userName'] = re.findall('class="car-lists-item-use-name-detail ">(.*?)</a>', car_table)[0]
                 items['userId'] = re.findall('//.*?cn/(.*?)#pvareaid', car_table)[0]
                 items['publishTime'] = re.findall('<span class="time">(.*?)</span>发表', car_table)[0]
@@ -102,10 +107,11 @@ class CarOwnerPriceSpider(scrapy.Spider):
                   <span class="list-details">(.*?)</span>''', car_table,re.S)[0]
                 items['licenseFee'] = re.findall('''<span class="list-name">上牌费</span>
                   <span class="list-details">(.*?)</span>''', car_table,re.S)[0]
-                print(items)
+                #print(items)
                 car_owner_list.append(items)
             item['car_owners'] = car_owner_list
             yield item
+            #判断是否存在下一页
             if len(car_owner_list) == 10:
                 response.meta['page'] += 1
                 url = self.owner_url.format(response.meta['trim_id'], str(response.meta['page']))
@@ -113,8 +119,9 @@ class CarOwnerPriceSpider(scrapy.Spider):
         else:
             print('页面无内容')
             pass
-
+    #解析源码
     def change_html(self, html):
+        #获取表源码
         price_list = re.findall('''<ul class="car-lists" >
           <li class="car-lists-item">
             <div class="car-lists-item-top">
@@ -122,6 +129,7 @@ class CarOwnerPriceSpider(scrapy.Spider):
                                 html, re.S)
         # print(len(price_list))
         js_list=[]
+        #获取所有相关js
         for price_str in price_list:
             js_code = re.findall('\(function.*?\)\(document\);', price_str, re.S)
             js_str = ''
@@ -129,13 +137,14 @@ class CarOwnerPriceSpider(scrapy.Spider):
                 js_str += js_
             js_list.append(js_str)
         # print(js_list)
+        #重写一个新的HTML页面
         DOM = self.DOM
         for js in js_list:
             DOM = DOM + js
         ne_html = "<html><meta http-equiv='Content-Type' content='text/html; charset=utf-8' /><head></head><body>    <script type='text/javascript'>"
         # 拼接成一个可以运行的网页
         new_html = ne_html + DOM + " document.write(rules)</script></body></html>"
-        # 再次运行的时候，请把文件删除，否则无法创建同名文件，或者自行加验证即可
+        # 写文件
         with open("./demo.html", "w") as f:
             f.write(new_html)
         # 通过selenium将数据读取出来，进行替换
@@ -144,10 +153,10 @@ class CarOwnerPriceSpider(scrapy.Spider):
         browser = webdriver.Chrome(options=options)
         # 上面三行代码就是为了将Chrome不弹出界面，实现无界面爬取
         browser.get("file:///home/tarena/PycharmProjects/code/spider/car_home/Car_owner/Car_owner/demo.html")
-        # 读取body部分
+        # 读取body部分，解析后的内容.hs_kw0_nakedPrice0KA::before { content: "34.63";}
         text = browser.find_element_by_tag_name('body').text
-
         span_list = re.findall("<!--hs--><span class='hs_kw0(.*?)></span><!--@HS_ZY@-->", html, re.S)
+        #替换车主页面源码的内容
         for span in span_list:
             span = "'hs_kw0" + span
             key = re.findall("'(.*?)'", span)[0]
